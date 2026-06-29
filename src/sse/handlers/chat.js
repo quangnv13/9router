@@ -35,6 +35,17 @@ export async function handleChat(request, clientRawRequest = null) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
   }
 
+  const settings = await getSettings();
+
+  // Override model if model switcher is enabled and has a valid override model
+  let modelStr = body.model;
+  if (settings.modelSwitcherEnabled && settings.modelSwitcherOverride) {
+    const originalModel = modelStr;
+    modelStr = settings.modelSwitcherOverride;
+    body.model = modelStr;
+    log.info("SWITCHER", `Override model active: "${originalModel}" -> "${modelStr}"`);
+  }
+
   // Build clientRawRequest for logging (if not provided)
   if (!clientRawRequest) {
     const url = new URL(request.url);
@@ -48,7 +59,6 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Log request endpoint and model
   const url = new URL(request.url);
-  const modelStr = body.model;
 
   // Count messages (support both messages[] and input[] formats)
   const msgCount = body.messages?.length || body.input?.length || 0;
@@ -67,7 +77,6 @@ export async function handleChat(request, clientRawRequest = null) {
   }
 
   // Enforce API key if enabled in settings
-  const settings = await getSettings();
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");

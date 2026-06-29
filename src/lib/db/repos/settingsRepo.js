@@ -42,6 +42,8 @@ const DEFAULT_SETTINGS = {
   cavemanLevel: "full",
   ponytailEnabled: false,
   ponytailLevel: "full",
+  modelSwitcherEnabled: false,
+  modelSwitcherOverride: "",
 };
 
 async function readRaw() {
