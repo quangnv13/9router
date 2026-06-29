@@ -266,7 +266,7 @@ export default function ModelSwitcherClient() {
 
           {/* Search box */}
           <div className="relative w-full sm:max-w-xs">
-            <span className="material-symbols-outlined absolute left-3 top-2.5 text-[18px] text-text-muted">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-text-muted pointer-events-none">
               search
             </span>
             <input
@@ -279,7 +279,7 @@ export default function ModelSwitcherClient() {
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-2.5 text-text-muted hover:text-text-main cursor-pointer"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main cursor-pointer flex items-center"
               >
                 <span className="material-symbols-outlined text-[16px]">close</span>
               </button>
@@ -288,7 +288,7 @@ export default function ModelSwitcherClient() {
         </div>
 
         {/* List of models/combos */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1.5 custom-scrollbar">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto p-1 pr-1.5 custom-scrollbar">
           {filteredItems.length > 0 ? (
             filteredItems.map((item) => {
               const isSelected = selectedOverride === item.id;
@@ -298,7 +298,7 @@ export default function ModelSwitcherClient() {
                   onClick={() => handleSelectOverride(item.id)}
                   className={`flex flex-col justify-between p-4 rounded-xl border transition-all cursor-pointer select-none bg-surface hover:border-brand-500/30 ${
                     isSelected
-                      ? "border-brand-500 ring-1 ring-brand-500 bg-brand-500/[0.02]"
+                      ? "border-brand-500 ring-1 ring-inset ring-brand-500 bg-brand-500/[0.02]"
                       : "border-border-subtle"
                   }`}
                 >
