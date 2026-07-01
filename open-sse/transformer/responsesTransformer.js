@@ -6,6 +6,7 @@
 
 import fs from "fs";
 import path from "path";
+import { fallbackToolCallId } from "../translator/concerns/toolCall.js";
 
 // Create log directory for responses (Node.js only)
 export function createResponsesLogger(model, logsDir = null) {
@@ -73,7 +74,8 @@ export function createResponsesApiTransformStream(logger = null) {
     funcArgsDone: {},
     funcItemDone: {},
     buffer: "",
-    completedSent: false
+    completedSent: false,
+    outputItems: []
   };
 
   const encoder = new TextEncoder();
@@ -128,6 +130,11 @@ export function createResponsesApiTransformStream(logger = null) {
   const closeReasoning = (controller) => {
     if (state.reasoningId && !state.reasoningDone) {
       state.reasoningDone = true;
+      const item = {
+        id: state.reasoningId,
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: state.reasoningBuf }]
+      };
       
       emit(controller, "response.reasoning_summary_text.done", {
         type: "response.reasoning_summary_text.done",
@@ -148,12 +155,10 @@ export function createResponsesApiTransformStream(logger = null) {
       emit(controller, "response.output_item.done", {
         type: "response.output_item.done",
         output_index: state.reasoningIndex,
-        item: {
-          id: state.reasoningId,
-          type: "reasoning",
-          summary: [{ type: "summary_text", text: state.reasoningBuf }]
-        }
+        item
       });
+
+      state.outputItems.push(item);
     }
   };
 
@@ -162,6 +167,12 @@ export function createResponsesApiTransformStream(logger = null) {
       state.msgItemDone[idx] = true;
       const fullText = state.msgTextBuf[idx] || "";
       const msgId = `msg_${state.responseId}_${idx}`;
+      const item = {
+        id: msgId,
+        type: "message",
+        content: [{ type: "output_text", annotations: [], logprobs: [], text: fullText }],
+        role: "assistant"
+      };
 
       emit(controller, "response.output_text.done", {
         type: "response.output_text.done",
@@ -183,13 +194,10 @@ export function createResponsesApiTransformStream(logger = null) {
       emit(controller, "response.output_item.done", {
         type: "response.output_item.done",
         output_index: parseInt(idx),
-        item: {
-          id: msgId,
-          type: "message",
-          content: [{ type: "output_text", annotations: [], logprobs: [], text: fullText }],
-          role: "assistant"
-        }
+        item
       });
+
+      state.outputItems.push(item);
     }
   };
 
@@ -197,6 +205,13 @@ export function createResponsesApiTransformStream(logger = null) {
     const callId = state.funcCallIds[idx];
     if (callId && !state.funcItemDone[idx]) {
       const args = state.funcArgsBuf[idx] || "{}";
+      const item = {
+        id: `fc_${callId}`,
+        type: "function_call",
+        arguments: args,
+        call_id: callId,
+        name: state.funcNames[idx] || ""
+      };
       
       emit(controller, "response.function_call_arguments.done", {
         type: "response.function_call_arguments.done",
@@ -208,14 +223,10 @@ export function createResponsesApiTransformStream(logger = null) {
       emit(controller, "response.output_item.done", {
         type: "response.output_item.done",
         output_index: parseInt(idx),
-        item: {
-          id: `fc_${callId}`,
-          type: "function_call",
-          arguments: args,
-          call_id: callId,
-          name: state.funcNames[idx] || ""
-        }
+        item
       });
+
+      state.outputItems.push(item);
 
       state.funcItemDone[idx] = true;
       state.funcArgsDone[idx] = true;
@@ -233,7 +244,8 @@ export function createResponsesApiTransformStream(logger = null) {
           created_at: state.created,
           status: "completed",
           background: false,
-          error: null
+          error: null,
+          output: state.outputItems
         }
       });
     }
@@ -376,12 +388,13 @@ export function createResponsesApiTransformStream(logger = null) {
 
           for (const tc of delta.tool_calls) {
             const tcIdx = tc.index ?? 0;
-            const newCallId = tc.id;
+            const newCallId = tc.id || state.funcCallIds[tcIdx] || fallbackToolCallId(tcIdx);
             const funcName = tc.function?.name;
+            const hasArgs = Object.prototype.hasOwnProperty.call(tc.function || {}, "arguments");
 
             if (funcName) state.funcNames[tcIdx] = funcName;
 
-            if (!state.funcCallIds[tcIdx] && newCallId) {
+            if (!state.funcCallIds[tcIdx] && (tc.id || funcName || hasArgs)) {
               state.funcCallIds[tcIdx] = newCallId;
               
               emit(controller, "response.output_item.added", {
@@ -399,7 +412,7 @@ export function createResponsesApiTransformStream(logger = null) {
 
             if (!state.funcArgsBuf[tcIdx]) state.funcArgsBuf[tcIdx] = "";
 
-            if (tc.function?.arguments) {
+            if (hasArgs && tc.function.arguments) {
               const refCallId = state.funcCallIds[tcIdx] || newCallId;
               if (refCallId) {
                 emit(controller, "response.function_call_arguments.delta", {
@@ -436,4 +449,3 @@ export function createResponsesApiTransformStream(logger = null) {
     }
   });
 }
-

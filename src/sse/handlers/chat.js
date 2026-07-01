@@ -163,6 +163,7 @@ export async function handleChat(request, clientRawRequest = null) {
  */
 async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null) {
   const modelInfo = await getModelInfo(modelStr);
+  const requestHeaders = clientRawRequest?.headers || (request ? Object.fromEntries(request.headers.entries()) : {});
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {

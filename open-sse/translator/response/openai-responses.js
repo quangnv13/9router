@@ -156,6 +156,11 @@ function emitReasoningDelta(state, emit, text) {
 function closeReasoning(state, emit) {
   if (state.reasoningId && !state.reasoningDone) {
     state.reasoningDone = true;
+    const item = {
+      id: state.reasoningId,
+      type: RESPONSES_ITEM.REASONING,
+      summary: [{ type: RESPONSES_ITEM.SUMMARY_TEXT, text: state.reasoningBuf }]
+    };
     
     emit("response.reasoning_summary_text.done", {
       type: "response.reasoning_summary_text.done",
@@ -176,12 +181,10 @@ function closeReasoning(state, emit) {
     emit("response.output_item.done", {
       type: "response.output_item.done",
       output_index: state.reasoningIndex,
-      item: {
-        id: state.reasoningId,
-        type: RESPONSES_ITEM.REASONING,
-        summary: [{ type: RESPONSES_ITEM.SUMMARY_TEXT, text: state.reasoningBuf }]
-      }
+      item
     });
+
+    (state.outputItems ??= []).push(item);
   }
 }
 
@@ -227,6 +230,12 @@ function closeMessage(state, emit, idx) {
     state.msgItemDone[idx] = true;
     const fullText = state.msgTextBuf[idx] || "";
     const msgId = `msg_${state.responseId}_${idx}`;
+    const item = {
+      id: msgId,
+      type: RESPONSES_ITEM.MESSAGE,
+      content: [{ type: RESPONSES_ITEM.OUTPUT_TEXT, annotations: [], logprobs: [], text: fullText }],
+      role: ROLE.ASSISTANT
+    };
 
     emit("response.output_text.done", {
       type: "response.output_text.done",
@@ -248,24 +257,22 @@ function closeMessage(state, emit, idx) {
     emit("response.output_item.done", {
       type: "response.output_item.done",
       output_index: parseInt(idx),
-      item: {
-        id: msgId,
-        type: RESPONSES_ITEM.MESSAGE,
-        content: [{ type: RESPONSES_ITEM.OUTPUT_TEXT, annotations: [], logprobs: [], text: fullText }],
-        role: ROLE.ASSISTANT
-      }
+      item
     });
+
+    (state.outputItems ??= []).push(item);
   }
 }
 
 function emitToolCall(state, emit, tc) {
   const tcIdx = tc.index ?? 0;
-  const newCallId = tc.id;
+  const newCallId = tc.id || state.funcCallIds[tcIdx] || fallbackToolCallId(tcIdx);
   const funcName = tc.function?.name;
+  const hasArgs = Object.prototype.hasOwnProperty.call(tc.function || {}, "arguments");
 
   if (funcName) state.funcNames[tcIdx] = funcName;
 
-  if (!state.funcCallIds[tcIdx] && newCallId) {
+  if (!state.funcCallIds[tcIdx] && (tc.id || funcName || hasArgs)) {
     state.funcCallIds[tcIdx] = newCallId;
     
     emit("response.output_item.added", {
@@ -283,7 +290,7 @@ function emitToolCall(state, emit, tc) {
 
   if (!state.funcArgsBuf[tcIdx]) state.funcArgsBuf[tcIdx] = "";
 
-  if (tc.function?.arguments) {
+  if (hasArgs && tc.function.arguments) {
     const refCallId = state.funcCallIds[tcIdx] || newCallId;
     if (refCallId) {
       emit("response.function_call_arguments.delta", {
@@ -301,6 +308,13 @@ function closeToolCall(state, emit, idx) {
   const callId = state.funcCallIds[idx];
   if (callId && !state.funcItemDone[idx]) {
     const args = state.funcArgsBuf[idx] || "{}";
+    const item = {
+      id: `fc_${callId}`,
+      type: RESPONSES_ITEM.FUNCTION_CALL,
+      arguments: args,
+      call_id: callId,
+      name: state.funcNames[idx] || ""
+    };
     
     emit("response.function_call_arguments.done", {
       type: "response.function_call_arguments.done",
@@ -312,14 +326,10 @@ function closeToolCall(state, emit, idx) {
     emit("response.output_item.done", {
       type: "response.output_item.done",
       output_index: parseInt(idx),
-      item: {
-        id: `fc_${callId}`,
-        type: RESPONSES_ITEM.FUNCTION_CALL,
-        arguments: args,
-        call_id: callId,
-        name: state.funcNames[idx] || ""
-      }
+      item
     });
+
+    (state.outputItems ??= []).push(item);
 
     state.funcItemDone[idx] = true;
     state.funcArgsDone[idx] = true;
@@ -337,7 +347,8 @@ function sendCompleted(state, emit) {
         created_at: state.created,
         status: "completed",
         background: false,
-        error: null
+        error: null,
+        output: state.outputItems || []
       }
     });
   }
