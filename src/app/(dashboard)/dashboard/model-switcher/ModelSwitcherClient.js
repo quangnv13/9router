@@ -418,11 +418,7 @@ export default function ModelSwitcherClient() {
 
       {/* Agent Session Overrides */}
       <Card className="border border-border-subtle bg-surface shadow-[var(--shadow-soft)] p-5">
-        <datalist id="model-switcher-options">
-          {[...new Map([...combos.map((combo) => [combo.name, combo.name]), ...filterModelSwitcherModels(models, activeProviders).map((model) => [model.fullModel, model.fullModel])]).values()].map((value) => (
-            <option key={value} value={value} />
-          ))}
-        </datalist>
+
 
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
@@ -462,11 +458,10 @@ export default function ModelSwitcherClient() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
             {filteredAgentSessions.map((session) => {
               const currentValue = session.overrideModel || "";
-              const applyValue = (value) => {
-                const model = value.trim();
-                if (!model || model === currentValue) return;
-                handleSelectSessionOverride(session.sessionId, model);
-              };
+              const options = [...new Map([
+                ...combos.map((combo) => [combo.name, { value: combo.name, label: combo.name }]),
+                ...filterModelSwitcherModels(models, activeProviders).map((model) => [model.fullModel, { value: model.fullModel, label: model.fullModel }]),
+              ]).values()];
               return (
                 <div
                   key={session.sessionId}
@@ -476,9 +471,6 @@ export default function ModelSwitcherClient() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-text-main truncate font-mono">{session.sessionId}</p>
-                      <p className="text-[10px] text-text-muted truncate mt-1">
-                        Current: {session.overrideModel || session.model || "global default"}
-                      </p>
                     </div>
                     {session.overrideModel && (
                       <button
@@ -490,18 +482,26 @@ export default function ModelSwitcherClient() {
                     )}
                   </div>
 
-                  <input
-                    key={`${session.sessionId}:${currentValue}`}
-                    type="text"
-                    list="model-switcher-options"
-                    placeholder="Search model/combo override..."
-                    defaultValue={currentValue}
-                    onBlur={(event) => applyValue(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") event.currentTarget.blur();
-                    }}
-                    className="mt-3 w-full bg-surface border border-border-subtle rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
-                  />
+                  <div className="relative mt-3">
+                    <select
+                      key={`${session.sessionId}:${currentValue}`}
+                      value={currentValue}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (!value || value === currentValue) return;
+                        handleSelectSessionOverride(session.sessionId, value);
+                      }}
+                      className="w-full appearance-none bg-surface border border-border-subtle rounded-xl px-3 py-2 pr-9 text-xs text-text-main focus:outline-none focus:border-brand-500"
+                    >
+                      <option value="">{session.model || selectedOverride || "Global default"}</option>
+                      {options.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-text-muted">
+                      <span className="material-symbols-outlined text-[16px]">expand_more</span>
+                    </span>
+                  </div>
 
                   <div className="flex items-center gap-2 mt-2 text-[10px] text-text-muted">
                     <span>{session.provider || "unknown"}</span>
