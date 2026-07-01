@@ -12,10 +12,21 @@ const OPTIONAL_PARAMS = [
   "user", "parallel_tool_calls"
 ];
 
+function cleanSessionId(value) {
+  if (typeof value !== "string") return null;
+  const sessionId = value.trim();
+  return sessionId && sessionId.length <= 256 ? sessionId : null;
+}
+
+function resolveSessionId(body, sessionId) {
+  return cleanSessionId(sessionId) || cleanSessionId(body?.sessionId) || cleanSessionId(body?.session_id) || cleanSessionId(body?.request?.sessionId);
+}
+
 export function extractRequestConfig(body, stream, sessionId = null) {
   const config = { messages: body.messages || [], model: body.model, stream };
   if (body.input !== undefined) config.input = body.input;
-  if (sessionId) config.sessionId = sessionId;
+  const resolvedSessionId = resolveSessionId(body, sessionId);
+  if (resolvedSessionId) config.sessionId = resolvedSessionId;
   for (const param of OPTIONAL_PARAMS) {
     if (body[param] !== undefined) config[param] = body[param];
   }
@@ -58,10 +69,12 @@ export function extractUsageFromResponse(responseBody) {
 }
 
 export function buildRequestDetail(base, overrides = {}) {
+  const sessionId = overrides.sessionId || base.sessionId || base.request?.sessionId || null;
   return {
     provider: base.provider || "unknown",
     model: base.model || "unknown",
     connectionId: base.connectionId || undefined,
+    sessionId: sessionId || undefined,
     timestamp: new Date().toISOString(),
     latency: base.latency || { ttft: 0, total: 0 },
     tokens: base.tokens || { prompt_tokens: 0, completion_tokens: 0 },

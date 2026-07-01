@@ -6,6 +6,7 @@ const OVERRIDE_SCOPE = "agentSessionModelOverrides";
 const MAX_MODEL_LENGTH = 256;
 const MAX_SESSION_ID_LENGTH = 256;
 const MAX_SESSION_ROWS = 500;
+const SESSION_IDLE_MS = 30 * 60 * 1000;
 const overrides = makeKv(OVERRIDE_SCOPE);
 
 function isObject(value) {
@@ -114,10 +115,28 @@ export async function getAgentSessions(limit = MAX_SESSION_ROWS) {
   }
 
   const overrideModels = await overrides.getAll();
-  return [...bySession.values()].map((session) => ({
-    ...session,
-    overrideModel: cleanOverrideModel(overrideModels[session.sessionId]),
-  }));
+  for (const [sessionId, model] of Object.entries(overrideModels)) {
+    const cleanSession = cleanSessionId(sessionId);
+    if (!cleanSession || bySession.has(cleanSession)) continue;
+    bySession.set(cleanSession, {
+      sessionId: cleanSession,
+      model: null,
+      overrideModel: cleanOverrideModel(model),
+      provider: null,
+      connectionId: null,
+      lastSeen: null,
+      requestCount: 0,
+      tokens: {},
+      contextPreview: "",
+    });
+  }
+  const activeAfter = Date.now() - SESSION_IDLE_MS;
+  return [...bySession.values()]
+    .filter((session) => !session.lastSeen || new Date(session.lastSeen).getTime() >= activeAfter)
+    .map((session) => ({
+      ...session,
+      overrideModel: cleanOverrideModel(overrideModels[session.sessionId]),
+    }));
 }
 
 export async function getAgentSessionModelOverride(sessionId) {

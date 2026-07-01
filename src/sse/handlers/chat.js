@@ -21,6 +21,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { applySessionModelOverride } from "open-sse/utils/sessionModelOverride.js";
+import { resolveSessionId } from "open-sse/utils/sessionManager.js";
 
 /**
  * Handle chat completion request
@@ -249,6 +250,15 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     log.info("AUTH", `\x1b[32mUsing ${provider} account: ${credentials.connectionName}\x1b[0m`);
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+
+    if (!clientRawRequest.sessionId) {
+      clientRawRequest.sessionId = resolveSessionId({
+        headers: requestHeaders,
+        body,
+        connectionId: credentials.connectionId,
+        scope: provider,
+      });
+    }
 
     // Ensure real project ID is available for providers that need it (P0 fix: cold miss)
     if ((provider === "antigravity" || provider === "gemini-cli") && !refreshedCredentials.projectId) {

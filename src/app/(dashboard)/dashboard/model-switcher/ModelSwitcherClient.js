@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Card, Toggle } from "@/shared/components";
+import { buildActiveProviderKeys, filterModelSwitcherModels } from "./modelSwitcherUtils";
 
 export default function ModelSwitcherClient() {
   const [enabled, setEnabled] = useState(false);
@@ -12,7 +13,7 @@ export default function ModelSwitcherClient() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all"); // 'all' | 'combos' | 'models'
   const [agentSessions, setAgentSessions] = useState([]);
-  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [sessionQuery, setSessionQuery] = useState("");
   const [sessionError, setSessionError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -48,10 +49,7 @@ export default function ModelSwitcherClient() {
         if (providersRes.ok) {
           const providersData = await providersRes.json();
           const connections = providersData.connections || [];
-          const active = new Set(
-            connections.filter((c) => c.isActive).map((c) => c.provider)
-          );
-          setActiveProviders(active);
+          setActiveProviders(buildActiveProviderKeys(connections));
         }
 
         if (sessionsRes.ok) {
@@ -66,6 +64,11 @@ export default function ModelSwitcherClient() {
     }
 
     initData();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(refreshAgentSessions, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // Update setting API helper
@@ -93,24 +96,27 @@ export default function ModelSwitcherClient() {
   };
 
   const handleSelectOverride = async (overrideValue) => {
-    if (selectedSessionId) {
-      await setSessionOverride(selectedSessionId, overrideValue);
-      return;
-    }
-
     setSelectedOverride(overrideValue);
     await saveSettingsPatch({ modelSwitcherOverride: overrideValue });
   };
 
+  const handleSelectSessionOverride = async (sessionId, overrideValue) => {
+    await setSessionOverride(sessionId, overrideValue);
+  };
+
   const refreshAgentSessions = async () => {
     setSessionError("");
-    const res = await fetch("/api/agent-sessions");
-    if (!res.ok) {
+    try {
+      const res = await fetch("/api/agent-sessions");
+      if (!res.ok) {
+        setSessionError("Failed to refresh agent sessions");
+        return;
+      }
+      const data = await res.json();
+      setAgentSessions(data.sessions || []);
+    } catch {
       setSessionError("Failed to refresh agent sessions");
-      return;
     }
-    const data = await res.json();
-    setAgentSessions(data.sessions || []);
   };
 
   const setSessionOverride = async (sessionId, model) => {
@@ -165,8 +171,7 @@ export default function ModelSwitcherClient() {
     }));
 
     // Only include models that have an active provider connection
-    const modelItems = models
-      .filter((m) => activeProviders.has(m.provider))
+    const modelItems = filterModelSwitcherModels(models, activeProviders)
       .map((m) => ({
         id: m.fullModel,
         name: m.alias || m.model,
@@ -203,23 +208,31 @@ export default function ModelSwitcherClient() {
     });
   }, [models, combos, searchQuery, filterType, activeProviders]);
 
+  const activeOverride = selectedOverride;
+
   const activeItemDetails = useMemo(() => {
-    if (!selectedOverride) return null;
-    const foundCombo = combos.find((c) => c.name === selectedOverride);
+    if (!activeOverride) return null;
+    const foundCombo = combos.find((c) => c.name === activeOverride);
     if (foundCombo) {
       return { name: foundCombo.name, type: "Combo", details: `${foundCombo.models?.length || 0} models` };
     }
-    const foundModel = models.find((m) => m.fullModel === selectedOverride);
+    const foundModel = models.find((m) => m.fullModel === activeOverride);
     if (foundModel) {
       return { name: foundModel.alias || foundModel.model, type: `Model (${foundModel.provider})`, details: foundModel.fullModel };
     }
-    return { name: selectedOverride, type: "Unknown", details: "" };
-  }, [selectedOverride, models, combos]);
+    return { name: activeOverride, type: "Unknown", details: "" };
+  }, [activeOverride, models, combos]);
 
-  const selectedSession = useMemo(
-    () => agentSessions.find((session) => session.sessionId === selectedSessionId) || null,
-    [agentSessions, selectedSessionId]
-  );
+  const filteredAgentSessions = useMemo(() => {
+    const query = sessionQuery.trim().toLowerCase();
+    if (!query) return agentSessions;
+    return agentSessions.filter((session) => (
+      session.sessionId.toLowerCase().includes(query) ||
+      (session.overrideModel || "").toLowerCase().includes(query) ||
+      (session.model || "").toLowerCase().includes(query) ||
+      (session.contextPreview || "").toLowerCase().includes(query)
+    ));
+  }, [agentSessions, sessionQuery]);
 
   const fmtTokens = (tokens = {}) => {
     const total = tokens.total_tokens || ((tokens.prompt_tokens || 0) + (tokens.completion_tokens || 0));
@@ -286,7 +299,7 @@ export default function ModelSwitcherClient() {
               </span>
               <div>
                 <p className="font-semibold">Switcher is Active</p>
-                {selectedOverride ? (
+                {activeOverride ? (
                   <p className="text-xs text-text-muted mt-1">
                     All incoming completions are forced to use:{" "}
                     <strong className="text-brand-500 font-mono">
@@ -317,112 +330,8 @@ export default function ModelSwitcherClient() {
         </div>
       </Card>
 
-      {/* Agent Session Overrides */}
-      <Card className="border border-border-subtle bg-surface shadow-[var(--shadow-soft)] p-5">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-sm font-bold text-text-main flex items-center gap-2">
-              <span className="material-symbols-outlined text-brand-500 text-[18px]">tab</span>
-              Agent Sessions
-            </h3>
-            <p className="text-xs text-text-muted mt-1">
-              Select a session, then pick a model below to override only that session.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={refreshAgentSessions}
-              className="text-xs text-text-muted hover:text-text-main cursor-pointer"
-            >
-              Refresh
-            </button>
-            {selectedSession && (
-              <button
-                onClick={() => setSelectedSessionId("")}
-                className="text-xs text-text-muted hover:text-text-main cursor-pointer"
-              >
-                Use global switcher
-              </button>
-            )}
-          </div>
-        </div>
-
-        {sessionError && (
-          <div className="mb-3 text-xs text-red-500 border border-red-500/20 bg-red-500/5 rounded-xl p-3">
-            {sessionError}
-          </div>
-        )}
-
-        {agentSessions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
-            {agentSessions.map((session) => {
-              const isSelected = selectedSessionId === session.sessionId;
-              return (
-                <div
-                  key={session.sessionId}
-                  onClick={() => setSelectedSessionId(isSelected ? "" : session.sessionId)}
-                  className={`p-3 rounded-xl border cursor-pointer bg-surface-2/40 hover:border-brand-500/30 ${
-                    isSelected ? "border-brand-500 ring-1 ring-inset ring-brand-500" : "border-border-subtle"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-text-main truncate font-mono">
-                        {session.sessionId}
-                      </p>
-                      <p className="text-[10px] text-text-muted truncate mt-1">
-                        {session.overrideModel || session.model || "No model"}
-                      </p>
-                    </div>
-                    {session.overrideModel && (
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          clearSessionOverride(session.sessionId);
-                        }}
-                        className="text-[10px] px-2 py-0.5 rounded-full border border-border text-text-muted hover:text-red-500 hover:border-red-500/40 cursor-pointer"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-text-muted mt-2 line-clamp-2">
-                    {session.contextPreview || "No context preview"}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2 text-[10px] text-text-muted">
-                    <span>{session.provider || "unknown"}</span>
-                    <span>·</span>
-                    <span>{session.requestCount} req</span>
-                    <span>·</span>
-                    <span>{fmtTokens(session.tokens)} tokens</span>
-                    <span>·</span>
-                    <span>{fmtTime(session.lastSeen)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4 text-center">
-            No agent sessions captured yet. Send a Codex request through 9Router first.
-          </div>
-        )}
-      </Card>
-
       {/* Selector Container */}
-      <div className="flex flex-col gap-4">
-        {selectedSession && (
-          <div className="flex items-start gap-3 rounded-xl border border-brand-500/20 bg-brand-500/5 p-3 text-xs text-text-main">
-            <span className="material-symbols-outlined text-brand-500 text-[18px]">edit</span>
-            <div className="min-w-0">
-              <p className="font-semibold">Editing one session override</p>
-              <p className="text-text-muted mt-1 truncate font-mono">
-                {selectedSession.sessionId} → {selectedSession.overrideModel || "pick a model below"}
-              </p>
-            </div>
-          </div>
-        )}
-
+      {enabled && <div className="flex flex-col gap-4">
         {/* Search and Tabs */}
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
           {/* Tabs */}
@@ -473,91 +382,25 @@ export default function ModelSwitcherClient() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto p-1 pr-1.5 custom-scrollbar">
           {filteredItems.length > 0 ? (
             filteredItems.map((item) => {
-              const isSelected = selectedSession ? selectedSession.overrideModel === item.id : selectedOverride === item.id;
+              const isSelected = activeOverride === item.id;
+              const title = item.type === "combo"
+                ? `Combo: ${item.modelsList.join(" → ")}`
+                : `Model: ${item.id}${item.provider ? ` (${item.provider})` : ""}`;
               return (
                 <div
                   key={item.id}
                   onClick={() => handleSelectOverride(item.id)}
-                  className={`flex flex-col justify-between p-4 rounded-xl border transition-all cursor-pointer select-none bg-surface hover:border-brand-500/30 ${
+                  title={title}
+                  className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none bg-surface hover:border-brand-500/30 ${
                     isSelected
                       ? "border-brand-500 ring-1 ring-inset ring-brand-500 bg-brand-500/[0.02]"
                       : "border-border-subtle"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <input
-                        type="radio"
-                        name="overrideModel"
-                        checked={isSelected}
-                        onChange={() => {}}
-                        className="accent-brand-500 size-3.5 mt-0.5 cursor-pointer shrink-0"
-                      />
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-semibold text-sm text-text-main truncate">
-                          {item.name}
-                        </span>
-                        <span className="text-[10px] text-text-muted truncate font-mono mt-0.5">
-                          {item.id}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Badge */}
-                    {item.type === "combo" ? (
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-brand-500/10 text-brand-500 border border-brand-500/20 shrink-0">
-                        Combo
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-surface-2 text-text-muted border border-border shrink-0 capitalize">
-                        {item.provider}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Details / Badges */}
-                  <div className="mt-4 flex flex-col gap-2">
-                    {item.type === "combo" ? (
-                      <div className="text-[11px] text-text-muted leading-relaxed font-medium">
-                        Fallback path:{" "}
-                        <span className="font-mono text-[10px] bg-surface-2 px-1 py-0.5 rounded border border-border">
-                          {item.modelsList.join(" → ")}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {item.caps?.vision && (
-                          <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-2 text-[10px] text-text-muted border border-border"
-                            title="Supports Vision"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">visibility</span>
-                            Vision
-                          </span>
-                        )}
-                        {item.caps?.reasoning && (
-                          <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-2 text-[10px] text-text-muted border border-border"
-                            title="Supports Reasoning"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">psychology</span>
-                            Reasoning
-                          </span>
-                        )}
-                        {item.caps?.search && (
-                          <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-2 text-[10px] text-text-muted border border-border"
-                            title="Supports Web Search"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">search</span>
-                            Search
-                          </span>
-                        )}
-                        {!item.caps?.vision && !item.caps?.reasoning && !item.caps?.search && (
-                          <span className="text-[10px] text-text-muted/50 italic">Standard Text Model</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <span className="material-symbols-outlined text-brand-500 text-[18px] shrink-0">
+                    {item.type === "combo" ? "account_tree" : "memory"}
+                  </span>
+                  <p className="min-w-0 font-semibold text-sm text-text-main truncate">{item.name}</p>
                 </div>
               );
             })
@@ -571,7 +414,114 @@ export default function ModelSwitcherClient() {
             </div>
           )}
         </div>
-      </div>
+      </div>}
+
+      {/* Agent Session Overrides */}
+      <Card className="border border-border-subtle bg-surface shadow-[var(--shadow-soft)] p-5">
+        <datalist id="model-switcher-options">
+          {[...new Map([...combos.map((combo) => [combo.name, combo.name]), ...filterModelSwitcherModels(models, activeProviders).map((model) => [model.fullModel, model.fullModel])]).values()].map((value) => (
+            <option key={value} value={value} />
+          ))}
+        </datalist>
+
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-bold text-text-main flex items-center gap-2">
+              <span className="material-symbols-outlined text-brand-500 text-[18px]">tab</span>
+              Agent Sessions
+            </h3>
+            <p className="text-xs text-text-muted mt-1">
+              Sessions refresh every 10s. Idle sessions disappear after 30 minutes and return on new activity.
+            </p>
+          </div>
+          <button
+            onClick={refreshAgentSessions}
+            className="text-xs text-text-muted hover:text-text-main cursor-pointer"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {sessionError && (
+          <div className="mb-3 text-xs text-red-500 border border-red-500/20 bg-red-500/5 rounded-xl p-3">
+            {sessionError}
+          </div>
+        )}
+
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="Search sessions..."
+            value={sessionQuery}
+            onChange={(event) => setSessionQuery(event.target.value)}
+            className="w-full bg-surface border border-border-subtle rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+          />
+        </div>
+
+        {filteredAgentSessions.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
+            {filteredAgentSessions.map((session) => {
+              const currentValue = session.overrideModel || "";
+              const applyValue = (value) => {
+                const model = value.trim();
+                if (!model || model === currentValue) return;
+                handleSelectSessionOverride(session.sessionId, model);
+              };
+              return (
+                <div
+                  key={session.sessionId}
+                  className="p-3 rounded-xl border border-border-subtle bg-surface-2/40"
+                  title={session.contextPreview || session.sessionId}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-text-main truncate font-mono">{session.sessionId}</p>
+                      <p className="text-[10px] text-text-muted truncate mt-1">
+                        Current: {session.overrideModel || session.model || "global default"}
+                      </p>
+                    </div>
+                    {session.overrideModel && (
+                      <button
+                        onClick={() => clearSessionOverride(session.sessionId)}
+                        className="text-[10px] px-2 py-0.5 rounded-full border border-border text-text-muted hover:text-red-500 hover:border-red-500/40 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <input
+                    key={`${session.sessionId}:${currentValue}`}
+                    type="text"
+                    list="model-switcher-options"
+                    placeholder="Search model/combo override..."
+                    defaultValue={currentValue}
+                    onBlur={(event) => applyValue(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                    className="mt-3 w-full bg-surface border border-border-subtle rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+
+                  <div className="flex items-center gap-2 mt-2 text-[10px] text-text-muted">
+                    <span>{session.provider || "unknown"}</span>
+                    <span>·</span>
+                    <span>{session.requestCount} req</span>
+                    <span>·</span>
+                    <span>{fmtTokens(session.tokens)} tokens</span>
+                    <span>·</span>
+                    <span>{fmtTime(session.lastSeen)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4 text-center">
+            No active agent sessions. Sessions appear automatically when agents interact with 9Router.
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

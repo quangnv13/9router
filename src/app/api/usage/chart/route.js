@@ -7,12 +7,13 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const period = searchParams.get("period") || "7d";
+    const timeZone = searchParams.get("timeZone") || undefined;
 
     if (!VALID_PERIODS.has(period)) {
       return NextResponse.json({ error: "Invalid period" }, { status: 400 });
     }
 
-    const data = await getChartData(period);
+    const data = await getChartData(period, timeZone);
     return NextResponse.json(data);
   } catch (error) {
     console.error("[API] Failed to get chart data:", error);

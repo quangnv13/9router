@@ -42,6 +42,17 @@ describe("session model override", () => {
     expect(result.sessionId).toBe("session-1");
   });
 
+  it("uses manual body session ids for overrides", async () => {
+    kv.get.mockResolvedValue("openai/gpt-4o-mini");
+    const body = { model: "anthropic/claude-sonnet-4", sessionId: "manual-session", messages: [] };
+
+    const result = await applySessionModelOverride(body, { headers: {} });
+
+    expect(kv.get).toHaveBeenCalledWith("manual-session");
+    expect(result.body.model).toBe("openai/gpt-4o-mini");
+    expect(result.sessionId).toBe("manual-session");
+  });
+
   it("ignores invalid or missing session ids", async () => {
     const body = { model: "anthropic/claude-sonnet-4", messages: [] };
 

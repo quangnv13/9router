@@ -250,7 +250,8 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       setFetching(true);
     }
 
-    fetch(`/api/usage/stats?period=${period}`)
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    fetch(`/api/usage/stats?period=${period}&timeZone=${encodeURIComponent(timeZone)}`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (data) {

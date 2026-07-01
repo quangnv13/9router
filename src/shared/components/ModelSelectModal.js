@@ -218,18 +218,23 @@ export default function ModelSelectModal({
           combined = [...registeredLlms, ...aliasModels.filter((m) => !registeredLlms.some((registered) => registered.value === m.value)), ...hardcoded];
         }
 
-        if (combined.length > 0) {
-          // Check for custom name from providerNodes (for compatible providers)
-          const matchedNode = providerNodes.find(node => node.id === providerId);
-          const displayName = matchedNode?.name || providerInfo.name;
+        const modelsToShow = combined.length > 0 ? combined : [{
+          id: `__placeholder__${providerId}`,
+          name: `${alias}/model-id`,
+          value: `${alias}/model-id`,
+          isPlaceholder: true,
+        }];
 
-          groups[providerId] = {
-            name: displayName,
-            alias: alias,
-            color: providerInfo.color,
-            models: combined,
-          };
-        }
+        // Check for custom name from providerNodes (for compatible providers)
+        const matchedNode = providerNodes.find(node => node.id === providerId);
+        const displayName = matchedNode?.name || providerInfo.name;
+
+        groups[providerId] = {
+          name: displayName,
+          alias: alias,
+          color: providerInfo.color,
+          models: modelsToShow,
+        };
       } else if (isCustomProvider) {
         // Custom (openai/anthropic-compatible) providers are LLM-only — skip for typed media kinds
         if (kindFilter && TYPED_KINDS.has(kindFilter)) return;

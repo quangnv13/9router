@@ -11,6 +11,16 @@ function cleanModel(model) {
   return value && value.length <= 256 ? value : null;
 }
 
+function cleanSessionId(sessionId) {
+  if (typeof sessionId !== "string") return null;
+  const value = sessionId.trim();
+  return value && value.length <= 256 ? value : null;
+}
+
+function extractManualSessionId(body) {
+  return cleanSessionId(body?.sessionId) || cleanSessionId(body?.request?.sessionId);
+}
+
 async function getOverrideModel(sessionId) {
   const now = Date.now();
   const cached = cache.get(sessionId);
@@ -21,7 +31,7 @@ async function getOverrideModel(sessionId) {
 }
 
 export async function applySessionModelOverride(body, { headers } = {}) {
-  const sessionId = extractClientSessionId(headers, body);
+  const sessionId = extractClientSessionId(headers, body) || extractManualSessionId(body);
   const originalModel = body?.model;
   if (!sessionId) return { body, model: originalModel, sessionId: null, overrideModel: null };
 
