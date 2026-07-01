@@ -12,8 +12,10 @@ const OPTIONAL_PARAMS = [
   "user", "parallel_tool_calls"
 ];
 
-export function extractRequestConfig(body, stream) {
+export function extractRequestConfig(body, stream, sessionId = null) {
   const config = { messages: body.messages || [], model: body.model, stream };
+  if (body.input !== undefined) config.input = body.input;
+  if (sessionId) config.sessionId = sessionId;
   for (const param of OPTIONAL_PARAMS) {
     if (body[param] !== undefined) config[param] = body[param];
   }

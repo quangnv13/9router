@@ -111,7 +111,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
 
   const ctx = {
     provider, model, connectionId,
-    request: extractRequestConfig(body, stream),
+    request: extractRequestConfig(body, stream, clientRawRequest?.sessionId),
     providerRequest: finalBody || translatedBody || null
   };
 

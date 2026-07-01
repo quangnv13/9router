@@ -11,6 +11,9 @@ export default function ModelSwitcherClient() {
   const [activeProviders, setActiveProviders] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all"); // 'all' | 'combos' | 'models'
+  const [agentSessions, setAgentSessions] = useState([]);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [sessionError, setSessionError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -18,11 +21,12 @@ export default function ModelSwitcherClient() {
   useEffect(() => {
     async function initData() {
       try {
-        const [settingsRes, modelsRes, combosRes, providersRes] = await Promise.all([
+        const [settingsRes, modelsRes, combosRes, providersRes, sessionsRes] = await Promise.all([
           fetch("/api/settings"),
           fetch("/api/models"),
           fetch("/api/combos"),
           fetch("/api/providers"),
+          fetch("/api/agent-sessions"),
         ]);
 
         if (settingsRes.ok) {
@@ -48,6 +52,11 @@ export default function ModelSwitcherClient() {
             connections.filter((c) => c.isActive).map((c) => c.provider)
           );
           setActiveProviders(active);
+        }
+
+        if (sessionsRes.ok) {
+          const sessionsData = await sessionsRes.json();
+          setAgentSessions(sessionsData.sessions || []);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -84,14 +93,68 @@ export default function ModelSwitcherClient() {
   };
 
   const handleSelectOverride = async (overrideValue) => {
+    if (selectedSessionId) {
+      await setSessionOverride(selectedSessionId, overrideValue);
+      return;
+    }
+
     setSelectedOverride(overrideValue);
     await saveSettingsPatch({ modelSwitcherOverride: overrideValue });
+  };
+
+  const refreshAgentSessions = async () => {
+    setSessionError("");
+    const res = await fetch("/api/agent-sessions");
+    if (!res.ok) {
+      setSessionError("Failed to refresh agent sessions");
+      return;
+    }
+    const data = await res.json();
+    setAgentSessions(data.sessions || []);
+  };
+
+  const setSessionOverride = async (sessionId, model) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/model`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSessionError(data.error || "Failed to set session override");
+        return;
+      }
+      await refreshAgentSessions();
+    } catch (error) {
+      console.error("Error setting session model override:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearSessionOverride = async (sessionId) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/model`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSessionError(data.error || "Failed to clear session override");
+        return;
+      }
+      await refreshAgentSessions();
+    } catch (error) {
+      console.error("Error clearing session model override:", error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Filter list of items based on search query and tab selection
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    
+
     const comboItems = combos.map((c) => ({
       id: c.name,
       name: c.name,
@@ -152,6 +215,21 @@ export default function ModelSwitcherClient() {
     }
     return { name: selectedOverride, type: "Unknown", details: "" };
   }, [selectedOverride, models, combos]);
+
+  const selectedSession = useMemo(
+    () => agentSessions.find((session) => session.sessionId === selectedSessionId) || null,
+    [agentSessions, selectedSessionId]
+  );
+
+  const fmtTokens = (tokens = {}) => {
+    const total = tokens.total_tokens || ((tokens.prompt_tokens || 0) + (tokens.completion_tokens || 0));
+    return total ? total.toLocaleString() : "0";
+  };
+
+  const fmtTime = (value) => {
+    if (!value) return "unknown";
+    return new Date(value).toLocaleString();
+  };
 
   if (loading) {
     return (
@@ -239,8 +317,112 @@ export default function ModelSwitcherClient() {
         </div>
       </Card>
 
+      {/* Agent Session Overrides */}
+      <Card className="border border-border-subtle bg-surface shadow-[var(--shadow-soft)] p-5">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-bold text-text-main flex items-center gap-2">
+              <span className="material-symbols-outlined text-brand-500 text-[18px]">tab</span>
+              Agent Sessions
+            </h3>
+            <p className="text-xs text-text-muted mt-1">
+              Select a session, then pick a model below to override only that session.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={refreshAgentSessions}
+              className="text-xs text-text-muted hover:text-text-main cursor-pointer"
+            >
+              Refresh
+            </button>
+            {selectedSession && (
+              <button
+                onClick={() => setSelectedSessionId("")}
+                className="text-xs text-text-muted hover:text-text-main cursor-pointer"
+              >
+                Use global switcher
+              </button>
+            )}
+          </div>
+        </div>
+
+        {sessionError && (
+          <div className="mb-3 text-xs text-red-500 border border-red-500/20 bg-red-500/5 rounded-xl p-3">
+            {sessionError}
+          </div>
+        )}
+
+        {agentSessions.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+            {agentSessions.map((session) => {
+              const isSelected = selectedSessionId === session.sessionId;
+              return (
+                <div
+                  key={session.sessionId}
+                  onClick={() => setSelectedSessionId(isSelected ? "" : session.sessionId)}
+                  className={`p-3 rounded-xl border cursor-pointer bg-surface-2/40 hover:border-brand-500/30 ${
+                    isSelected ? "border-brand-500 ring-1 ring-inset ring-brand-500" : "border-border-subtle"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-text-main truncate font-mono">
+                        {session.sessionId}
+                      </p>
+                      <p className="text-[10px] text-text-muted truncate mt-1">
+                        {session.overrideModel || session.model || "No model"}
+                      </p>
+                    </div>
+                    {session.overrideModel && (
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          clearSessionOverride(session.sessionId);
+                        }}
+                        className="text-[10px] px-2 py-0.5 rounded-full border border-border text-text-muted hover:text-red-500 hover:border-red-500/40 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-2 line-clamp-2">
+                    {session.contextPreview || "No context preview"}
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-[10px] text-text-muted">
+                    <span>{session.provider || "unknown"}</span>
+                    <span>·</span>
+                    <span>{session.requestCount} req</span>
+                    <span>·</span>
+                    <span>{fmtTokens(session.tokens)} tokens</span>
+                    <span>·</span>
+                    <span>{fmtTime(session.lastSeen)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4 text-center">
+            No agent sessions captured yet. Send a Codex request through 9Router first.
+          </div>
+        )}
+      </Card>
+
       {/* Selector Container */}
       <div className="flex flex-col gap-4">
+        {selectedSession && (
+          <div className="flex items-start gap-3 rounded-xl border border-brand-500/20 bg-brand-500/5 p-3 text-xs text-text-main">
+            <span className="material-symbols-outlined text-brand-500 text-[18px]">edit</span>
+            <div className="min-w-0">
+              <p className="font-semibold">Editing one session override</p>
+              <p className="text-text-muted mt-1 truncate font-mono">
+                {selectedSession.sessionId} → {selectedSession.overrideModel || "pick a model below"}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Search and Tabs */}
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
           {/* Tabs */}
@@ -291,7 +473,7 @@ export default function ModelSwitcherClient() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto p-1 pr-1.5 custom-scrollbar">
           {filteredItems.length > 0 ? (
             filteredItems.map((item) => {
-              const isSelected = selectedOverride === item.id;
+              const isSelected = selectedSession ? selectedSession.overrideModel === item.id : selectedOverride === item.id;
               return (
                 <div
                   key={item.id}
@@ -308,7 +490,7 @@ export default function ModelSwitcherClient() {
                         type="radio"
                         name="overrideModel"
                         checked={isSelected}
-                        onChange={() => handleSelectOverride(item.id)}
+                        onChange={() => {}}
                         className="accent-brand-500 size-3.5 mt-0.5 cursor-pointer shrink-0"
                       />
                       <div className="flex flex-col min-w-0">

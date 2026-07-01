@@ -20,6 +20,7 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
+import { applySessionModelOverride } from "open-sse/utils/sessionModelOverride.js";
 
 /**
  * Handle chat completion request
@@ -36,6 +37,7 @@ export async function handleChat(request, clientRawRequest = null) {
   }
 
   const settings = await getSettings();
+  const requestHeaders = Object.fromEntries(request.headers.entries());
 
   // Override model if model switcher is enabled and has a valid override model
   let modelStr = body.model;
@@ -46,15 +48,26 @@ export async function handleChat(request, clientRawRequest = null) {
     log.info("SWITCHER", `Override model active: "${originalModel}" -> "${modelStr}"`);
   }
 
+  const beforeSessionOverride = modelStr;
+  const sessionOverride = await applySessionModelOverride(body, {
+    headers: requestHeaders,
+  });
+  body = sessionOverride.body;
+  modelStr = sessionOverride.model;
+  if (sessionOverride.overrideModel) {
+    log.info("SESSION", `Override model active: "${beforeSessionOverride}" -> "${modelStr}"`);
+  }
+
   // Build clientRawRequest for logging (if not provided)
   if (!clientRawRequest) {
     const url = new URL(request.url);
     clientRawRequest = {
       endpoint: url.pathname,
       body,
-      headers: Object.fromEntries(request.headers.entries())
+      headers: requestHeaders
     };
   }
+  if (sessionOverride.sessionId) clientRawRequest.sessionId = sessionOverride.sessionId;
   cacheClaudeHeaders(clientRawRequest.headers);
 
   // Log request endpoint and model
