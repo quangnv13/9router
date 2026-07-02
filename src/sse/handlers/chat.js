@@ -20,7 +20,6 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
-import { applySessionModelOverride } from "open-sse/utils/sessionModelOverride.js";
 import { resolveSessionId } from "open-sse/utils/sessionManager.js";
 
 /**
@@ -49,16 +48,6 @@ export async function handleChat(request, clientRawRequest = null) {
     log.info("SWITCHER", `Override model active: "${originalModel}" -> "${modelStr}"`);
   }
 
-  const beforeSessionOverride = modelStr;
-  const sessionOverride = await applySessionModelOverride(body, {
-    headers: requestHeaders,
-  });
-  body = sessionOverride.body;
-  modelStr = sessionOverride.model;
-  if (sessionOverride.overrideModel) {
-    log.info("SESSION", `Override model active: "${beforeSessionOverride}" -> "${modelStr}"`);
-  }
-
   // Build clientRawRequest for logging (if not provided)
   if (!clientRawRequest) {
     const url = new URL(request.url);
@@ -68,7 +57,6 @@ export async function handleChat(request, clientRawRequest = null) {
       headers: requestHeaders
     };
   }
-  if (sessionOverride.sessionId) clientRawRequest.sessionId = sessionOverride.sessionId;
   cacheClaudeHeaders(clientRawRequest.headers);
 
   // Log request endpoint and model

@@ -12,9 +12,6 @@ export default function ModelSwitcherClient() {
   const [activeProviders, setActiveProviders] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all"); // 'all' | 'combos' | 'models'
-  const [agentSessions, setAgentSessions] = useState([]);
-  const [sessionQuery, setSessionQuery] = useState("");
-  const [sessionError, setSessionError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -22,12 +19,11 @@ export default function ModelSwitcherClient() {
   useEffect(() => {
     async function initData() {
       try {
-        const [settingsRes, modelsRes, combosRes, providersRes, sessionsRes] = await Promise.all([
+        const [settingsRes, modelsRes, combosRes, providersRes] = await Promise.all([
           fetch("/api/settings"),
           fetch("/api/models"),
           fetch("/api/combos"),
           fetch("/api/providers"),
-          fetch("/api/agent-sessions"),
         ]);
 
         if (settingsRes.ok) {
@@ -52,10 +48,6 @@ export default function ModelSwitcherClient() {
           setActiveProviders(buildActiveProviderKeys(connections));
         }
 
-        if (sessionsRes.ok) {
-          const sessionsData = await sessionsRes.json();
-          setAgentSessions(sessionsData.sessions || []);
-        }
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
@@ -66,10 +58,6 @@ export default function ModelSwitcherClient() {
     initData();
   }, []);
 
-  useEffect(() => {
-    const interval = setInterval(refreshAgentSessions, 10000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Update setting API helper
   const saveSettingsPatch = async (patch) => {
@@ -98,63 +86,6 @@ export default function ModelSwitcherClient() {
   const handleSelectOverride = async (overrideValue) => {
     setSelectedOverride(overrideValue);
     await saveSettingsPatch({ modelSwitcherOverride: overrideValue });
-  };
-
-  const handleSelectSessionOverride = async (sessionId, overrideValue) => {
-    await setSessionOverride(sessionId, overrideValue);
-  };
-
-  const refreshAgentSessions = async () => {
-    setSessionError("");
-    try {
-      const res = await fetch("/api/agent-sessions");
-      if (!res.ok) {
-        setSessionError("Failed to refresh agent sessions");
-        return;
-      }
-      const data = await res.json();
-      setAgentSessions(data.sessions || []);
-    } catch {
-      setSessionError("Failed to refresh agent sessions");
-    }
-  };
-
-  const setSessionOverride = async (sessionId, model) => {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/model`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setSessionError(data.error || "Failed to set session override");
-        return;
-      }
-      await refreshAgentSessions();
-    } catch (error) {
-      console.error("Error setting session model override:", error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const clearSessionOverride = async (sessionId) => {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/agent-sessions/${encodeURIComponent(sessionId)}/model`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setSessionError(data.error || "Failed to clear session override");
-        return;
-      }
-      await refreshAgentSessions();
-    } catch (error) {
-      console.error("Error clearing session model override:", error);
-    } finally {
-      setSaving(false);
-    }
   };
 
   // Filter list of items based on search query and tab selection
@@ -222,27 +153,6 @@ export default function ModelSwitcherClient() {
     }
     return { name: activeOverride, type: "Unknown", details: "" };
   }, [activeOverride, models, combos]);
-
-  const filteredAgentSessions = useMemo(() => {
-    const query = sessionQuery.trim().toLowerCase();
-    if (!query) return agentSessions;
-    return agentSessions.filter((session) => (
-      session.sessionId.toLowerCase().includes(query) ||
-      (session.overrideModel || "").toLowerCase().includes(query) ||
-      (session.model || "").toLowerCase().includes(query) ||
-      (session.contextPreview || "").toLowerCase().includes(query)
-    ));
-  }, [agentSessions, sessionQuery]);
-
-  const fmtTokens = (tokens = {}) => {
-    const total = tokens.total_tokens || ((tokens.prompt_tokens || 0) + (tokens.completion_tokens || 0));
-    return total ? total.toLocaleString() : "0";
-  };
-
-  const fmtTime = (value) => {
-    if (!value) return "unknown";
-    return new Date(value).toLocaleString();
-  };
 
   if (loading) {
     return (
@@ -416,112 +326,6 @@ export default function ModelSwitcherClient() {
         </div>
       </div>}
 
-      {/* Agent Session Overrides */}
-      {enabled && <Card className="border border-border-subtle bg-surface shadow-[var(--shadow-soft)] p-5">
-
-
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-sm font-bold text-text-main flex items-center gap-2">
-              <span className="material-symbols-outlined text-brand-500 text-[18px]">tab</span>
-              Agent Sessions
-            </h3>
-            <p className="text-xs text-text-muted mt-1">
-              Sessions refresh every 10s. Idle sessions disappear after 30 minutes and return on new activity.
-            </p>
-          </div>
-          <button
-            onClick={refreshAgentSessions}
-            className="text-xs text-text-muted hover:text-text-main cursor-pointer"
-          >
-            Refresh
-          </button>
-        </div>
-
-        {sessionError && (
-          <div className="mb-3 text-xs text-red-500 border border-red-500/20 bg-red-500/5 rounded-xl p-3">
-            {sessionError}
-          </div>
-        )}
-
-        <div className="mb-4">
-          <input
-            type="text"
-            placeholder="Search sessions..."
-            value={sessionQuery}
-            onChange={(event) => setSessionQuery(event.target.value)}
-            className="w-full bg-surface border border-border-subtle rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
-          />
-        </div>
-
-        {filteredAgentSessions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
-            {filteredAgentSessions.map((session) => {
-              const currentValue = session.overrideModel || "";
-              const options = [...new Map([
-                ...combos.map((combo) => [combo.name, { value: combo.name, label: combo.name }]),
-                ...filterModelSwitcherModels(models, activeProviders).map((model) => [model.fullModel, { value: model.fullModel, label: model.fullModel }]),
-              ]).values()];
-              return (
-                <div
-                  key={session.sessionId}
-                  className="p-3 rounded-xl border border-border-subtle bg-surface-2/40"
-                  title={session.contextPreview || session.sessionId}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-text-main truncate font-mono">{session.sessionId}</p>
-                    </div>
-                    {session.overrideModel && (
-                      <button
-                        onClick={() => clearSessionOverride(session.sessionId)}
-                        className="text-[10px] px-2 py-0.5 rounded-full border border-border text-text-muted hover:text-red-500 hover:border-red-500/40 cursor-pointer"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="relative mt-3">
-                    <select
-                      key={`${session.sessionId}:${currentValue}`}
-                      value={currentValue}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        if (!value || value === currentValue) return;
-                        handleSelectSessionOverride(session.sessionId, value);
-                      }}
-                      className="w-full appearance-none bg-surface border border-border-subtle rounded-xl px-3 py-2 pr-9 text-xs text-text-main focus:outline-none focus:border-brand-500"
-                    >
-                      <option value="">{session.model || selectedOverride || "Global default"}</option>
-                      {options.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-text-muted">
-                      <span className="material-symbols-outlined text-[16px]">expand_more</span>
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-2 text-[10px] text-text-muted">
-                    <span>{session.provider || "unknown"}</span>
-                    <span>·</span>
-                    <span>{session.requestCount} req</span>
-                    <span>·</span>
-                    <span>{fmtTokens(session.tokens)} tokens</span>
-                    <span>·</span>
-                    <span>{fmtTime(session.lastSeen)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-xs text-text-muted border border-dashed border-border rounded-xl p-4 text-center">
-            No active agent sessions. Sessions appear automatically when agents interact with 9Router.
-          </div>
-        )}
-      </Card>}
     </div>
   );
 }

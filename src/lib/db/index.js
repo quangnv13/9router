@@ -67,12 +67,6 @@ export {
   saveRequestDetail, getRequestDetails, getRequestDetailById,
 } from "./repos/requestDetailsRepo.js";
 
-// Agent sessions
-export {
-  getAgentSessions, getAgentSessionModelOverride,
-  setAgentSessionModelOverride, clearAgentSessionModelOverride,
-} from "./repos/agentSessionRepo.js";
-
 // Export/import full DB
 export async function exportDb() {
   const db = await getAdapter();
