@@ -5,6 +5,7 @@ export const ERROR_TYPES = {
   402: { type: "billing_error", code: "payment_required" },
   403: { type: "permission_error", code: "insufficient_quota" },
   404: { type: "invalid_request_error", code: "model_not_found" },
+  422: { type: "invalid_request_error", code: "unprocessable_entity" },
   406: { type: "invalid_request_error", code: "model_not_supported" },
   429: { type: "rate_limit_error", code: "rate_limit_exceeded" },
   500: { type: "server_error", code: "internal_server_error" },
@@ -20,6 +21,7 @@ export const DEFAULT_ERROR_MESSAGES = {
   402: "Payment required",
   403: "You exceeded your current quota",
   404: "Model not found",
+  422: "Unprocessable request",
   406: "Model not supported",
   429: "Rate limit exceeded",
   500: "Internal server error",
@@ -58,6 +60,9 @@ const COOLDOWN = {
  */
 export const ERROR_RULES = [
   // --- Text-based rules (checked first, order = priority) ---
+  { text: "abnormal behavior",       shouldFallback: false, cooldownMs: 0 },
+  { text: "unusual activity",        shouldFallback: false, cooldownMs: 0 },
+  { text: "suspicious activity",     shouldFallback: false, cooldownMs: 0 },
   { text: "no credentials",           cooldownMs: COOLDOWN.long },
   { text: "request not allowed",      cooldownMs: COOLDOWN.short },
   { text: "improperly formed request", cooldownMs: COOLDOWN.long },

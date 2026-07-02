@@ -417,7 +417,7 @@ export default function ModelSwitcherClient() {
       </div>}
 
       {/* Agent Session Overrides */}
-      <Card className="border border-border-subtle bg-surface shadow-[var(--shadow-soft)] p-5">
+      {enabled && <Card className="border border-border-subtle bg-surface shadow-[var(--shadow-soft)] p-5">
 
 
         <div className="flex items-start justify-between gap-3 mb-4">
@@ -521,7 +521,7 @@ export default function ModelSwitcherClient() {
             No active agent sessions. Sessions appear automatically when agents interact with 9Router.
           </div>
         )}
-      </Card>
+      </Card>}
     </div>
   );
 }
