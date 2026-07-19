@@ -41,6 +41,8 @@ export async function handleChat(request, clientRawRequest = null) {
   const settings = await getSettings();
   const requestHeaders = Object.fromEntries(request.headers.entries());
 
+  let modelStr = body.model;
+
   // Override model if model switcher is enabled and has a valid override model
   if (settings.modelSwitcherEnabled && settings.modelSwitcherOverride) {
     const originalModel = modelStr;
@@ -59,8 +61,6 @@ export async function handleChat(request, clientRawRequest = null) {
     };
   }
   cacheClaudeHeaders(clientRawRequest.headers);
-
-  const modelStr = body.model;
 
   // Request summary is emitted as the unified "▶" line in chatCore (has fmt/thinking/account)
 
